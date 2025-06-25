@@ -1,0 +1,84 @@
+from flask import Flask, render_template, request
+import pickle
+import joblib
+import pandas as pd
+from datetime import datetime
+
+app = Flask(__name__)
+
+
+with open('rf_model.pkl', 'rb') as f:
+    model = pickle.load(f)
+
+with open('airline_label_encoder.pkl', 'rb') as f:
+    airline_encoder = joblib.load(f)
+
+with open('city_label_encoder.pkl', 'rb') as f:
+    city_encoder = joblib.load(f)
+
+@app.route('/')
+def index():
+
+    airlines = list(enumerate(airline_encoder.classes_))
+    cities = list(enumerate(city_encoder.classes_))
+    return render_template('index.html', airlines=airlines, cities=cities)
+
+@app.route('/predict', methods=['POST'])
+def predict():
+    try:
+        airline_code = int(request.form['airline_code'])
+        from_code = int(request.form['from_city_code'])
+        to_code = int(request.form['to_city_code'])
+        travel_date = request.form['travel_date']
+        dep_time = request.form['dep_time']
+        arr_time = request.form['arr_time']
+        duration_str = request.form['duration']
+
+        dep_hour, dep_min = map(int, dep_time.split(":"))
+        arr_hour, arr_min = map(int, arr_time.split(":"))
+
+        duration = 0
+        if "h" in duration_str:
+            parts = duration_str.split("h")
+            duration += int(parts[0].strip()) * 60
+            if "m" in parts[1]:
+                m_part = parts[1].replace("m", "").strip()
+                if m_part:
+                    duration += int(m_part)
+        elif "m" in duration_str:
+            duration += int(duration_str.replace("m", "").strip())
+
+
+        date_obj = datetime.strptime(travel_date, "%Y-%m-%d")
+        day = date_obj.day
+        month = date_obj.month
+        weekday = date_obj.weekday()
+
+
+        input_df = pd.DataFrame([{
+            "from": from_code,
+            "to": to_code,
+            "day": day,
+            "month": month,
+            "weekday": weekday,
+            "duration_mins": duration,
+            "dep_hour": dep_hour,
+            "dep_min": dep_min,
+            "arr_hour": arr_hour,
+            "arr_min": arr_min,
+            "airline_encoded": airline_code
+        }])
+
+
+        pred = model.predict(input_df)
+        #prediction = round(pred, 2)
+        prediction = pred
+
+        return render_template('index.html', prediction=prediction)
+
+    except Exception as e:
+        return render_template('index.html', error=str(e))
+
+
+if __name__ == '__main__':
+    app.run(debug=True)
